@@ -1,0 +1,5 @@
+*.exe
+file_tests
+*.kdb
+.vscode
+.DS_Store
