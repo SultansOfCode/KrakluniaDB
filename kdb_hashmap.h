@@ -31,6 +31,7 @@ typedef struct
   KDB_HASHMAP_KEY_TYPE   key;
   KDB_HASHMAP_VALUE_TYPE value;
   bool                   occupied;
+  size_t                 references;
 } KDB_HASHMAP_ENTRY;
 
 KDB_HASHMAP_ENTRY KDB_HASHMAP_BUFFER[KDB_HASHMAP_CAPACITY] = { 0 };
@@ -123,21 +124,28 @@ bool KDB_HASHMAP_FUNCTION_SET(KDB_HASHMAP_KEY_TYPE key, KDB_HASHMAP_VALUE_TYPE v
     return false;
   }
 
-  KDB_HASHMAP_BUFFER[hash].key      = key;
-  KDB_HASHMAP_BUFFER[hash].value    = value;
-  KDB_HASHMAP_BUFFER[hash].occupied = true;
+  if (KDB_HASHMAP_BUFFER[hash].occupied)
+  {
+    printf("SETTANDO DUAS VEZES\n");
+    return false;
+  }
+
+  KDB_HASHMAP_BUFFER[hash].key        = key;
+  KDB_HASHMAP_BUFFER[hash].value      = value;
+  KDB_HASHMAP_BUFFER[hash].occupied   = true;
+  KDB_HASHMAP_BUFFER[hash].references = 1;
 
   return true;
 }
 
-// #undef KDB_HASHMAP_BUFFER
-// #undef KDB_HASHMAP_FUNCTION_SET
-// #undef KDB_HASHMAP_FUNCTION_GET
-// #undef KDB_HASHMAP_FUNCTION_BASE
-// #undef KDB_HASHMAP
-// #undef KDB_HASHMAP_ENTRY
-// #undef KDB_HASHMAP_GLUE
-// #undef KDB_HASHMAP_GLUE_HELPER
+#undef KDB_HASHMAP_BUFFER
+#undef KDB_HASHMAP_FUNCTION_SET
+#undef KDB_HASHMAP_FUNCTION_GET
+#undef KDB_HASHMAP_FUNCTION_BASE
+#undef KDB_HASHMAP
+#undef KDB_HASHMAP_ENTRY
+#undef KDB_HASHMAP_GLUE
+#undef KDB_HASHMAP_GLUE_HELPER
 
 #undef KDB_HASHMAP_VALUE_TYPE
 #undef KDB_HASHMAP_KEY_TYPE

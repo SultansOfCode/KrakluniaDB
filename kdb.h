@@ -15,9 +15,9 @@
 #endif
 
 #define KDB_VERSION_SIZE      4
-#define KDB_NAME_SIZE         10
+#define KDB_NAME_SIZE         8
 #define KDB_VERSION           "KDB\1"
-#define KDB_FLAGS_TYPE        uint16_t
+#define KDB_FLAGS_TYPE        uint32_t
 #define KDB_FLAGS_TYPE_FORMAT "%04hX"
 
 #ifdef KDB_USE_LONG_DOUBLE
@@ -118,11 +118,11 @@ typedef struct
 #define KDB_HASHMAP_VALUE_TYPE KDB*
 #include "kdb_hashmap.h"
 
-#define KDB_HASHMAP_NAME       cache
-#define KDB_HASHMAP_CAPACITY   64
-#define KDB_HASHMAP_KEY_TYPE   unsigned int
-#define KDB_HASHMAP_VALUE_TYPE KDB_VALUE_TYPE
-#include "kdb_hashmap.h"
+// #define KDB_HASHMAP_NAME       cache
+// #define KDB_HASHMAP_CAPACITY   64
+// #define KDB_HASHMAP_KEY_TYPE   unsigned int
+// #define KDB_HASHMAP_VALUE_TYPE KDB_VALUE_TYPE
+// #include "kdb_hashmap.h"
 
 int            kdb_compare_values(const void* a, const void* b);
 KDB_VALUE_TYPE kdb_map_value(KDB_VALUE_TYPE value, KDB_VALUE_TYPE min_a, KDB_VALUE_TYPE max_a, KDB_VALUE_TYPE min_b, KDB_VALUE_TYPE max_b);
@@ -133,7 +133,7 @@ void           kdb_dump_data(KDB_DATA* data);
 void           kdb_dump(KDB* db, bool include_all_data);
 bool           kdb_write_header(KDB* db);
 bool           kdb_write_data(KDB* db, KDB_DATA* data);
-bool           kdb_initialize(KDB* db, char* filename, char* name);
+KDB*           kdb_initialize(char* name);
 bool           kdb_finalize(KDB* db);
 bool           kdb_get_data(KDB* db, int64_t index, KDB_DATA* data);
 bool           kdb_get_data_normalized(KDB* db, int64_t index, KDB_DATA* data);
@@ -397,21 +397,8 @@ bool kdb_write_data(KDB* db, KDB_DATA* data)
 }
 
 // Initialize the database's structure
-bool kdb_initialize(KDB* db, char* filename, char* name)
+KDB* kdb_initialize(char* name)
 {
-  if (!db)
-  {
-    return false;
-  }
-
-  if (db->initialized)
-  {
-    return true;
-  }
-
-  // Ensure everything is clean
-  kdb_finalize(db);
-
   // Validate name limit
   size_t name_size = strlen(name);
 
@@ -422,7 +409,60 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
     return false;
   }
 
+  for (size_t i = 0; i < name_size; ++name_size)
+  {
+    if (('a' <= name[i] && name[i] <= 'z') || ('0' <= name[i] && name[i] <= '9'))
+    {
+      continue;
+    }
+
+    KDB_ERROR("Database name has illegal characters. Characters allowed: a-z and 0-9. Found %c\n", name[i]);
+
+    return false;
+  }
+
+  KDB* db = kdb_hashmap_dbs_get(name, NULL);
+
+  if (db)
+  {
+    return db;
+  }
+
+  db = (KDB*)malloc(sizeof(KDB));
+
+  if (!db)
+  {
+    KDB_ERROR("Could not alloc memory for the database structure\n");
+
+    return NULL;
+  }
+
+  // Ensure everything is clean
+  kdb_finalize(db);
+
   // Initialize filename
+  char* filename = (char*)malloc((name_size + 5) * sizeof(char));
+
+  if (!filename)
+  {
+    return false;
+  }
+
+  memset(filename, 0, name_size + 5);
+
+  for (size_t i = 0; i < name_size; ++i)
+  {
+    *(filename + i) = *(name + i);
+  }
+
+  *(filename + name_size + 0) = '.';
+  *(filename + name_size + 1) = 'k';
+  *(filename + name_size + 2) = 'd';
+  *(filename + name_size + 3) = 'b';
+
+  printf("Name: %s - Name size: %d - Filename: %s\n", name, name_size, filename);
+  return NULL;
+
   db->filename = filename;
 
   // Try to open the file to read/update
@@ -462,38 +502,34 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
       }
 
       // All good
-      db->initialized = true;
-
-      return true;
+      goto success;
     }
 
     KDB_ERROR("Failed to open \"%s\"\n", filename);
 
     file_error:
-      kdb_finalize(db);
-
       return false;
   }
 
   // Read data from file
-  char             f_version[KDB_VERSION_SIZE] = { 0 };
-  char             f_name[KDB_NAME_SIZE]       = { 0 };
-  size_t           f_name_size                 = 0;
-  KDB_FLAGS_TYPE f_flags                       = 0;
-  uint32_t         f_count                     = 0;
-  KDB_VALUE_TYPE f_sum                         = 0.0f;
-  KDB_VALUE_TYPE f_average                     = 0.0f;
-  KDB_VALUE_TYPE f_min                         = INFINITY;
-  KDB_VALUE_TYPE f_max                         = -INFINITY;
-  KDB_VALUE_TYPE f_variance                    = INFINITY;
-  KDB_VALUE_TYPE f_median                      = INFINITY;
+  char           f_version[KDB_VERSION_SIZE] = { 0 };
+  char           f_name[KDB_NAME_SIZE]       = { 0 };
+  size_t         f_name_size                 = 0;
+  KDB_FLAGS_TYPE f_flags                     = 0;
+  uint32_t       f_count                     = 0;
+  KDB_VALUE_TYPE f_sum                       = 0.0f;
+  KDB_VALUE_TYPE f_average                   = 0.0f;
+  KDB_VALUE_TYPE f_min                       = INFINITY;
+  KDB_VALUE_TYPE f_max                       = -INFINITY;
+  KDB_VALUE_TYPE f_variance                  = INFINITY;
+  KDB_VALUE_TYPE f_median                    = INFINITY;
 
   // Try to parse the version
   if (fread(&f_version, sizeof(char), KDB_VERSION_SIZE, db->file) != KDB_VERSION_SIZE)
   {
     KDB_ERROR("Failed to read the database version\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Check the magic string
@@ -501,7 +537,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   {
     KDB_ERROR("File has no magic string in header\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Check if the version is right/supported
@@ -509,7 +545,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   {
     KDB_ERROR("Unknown database version\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Try to parse the name
@@ -517,7 +553,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   {
     KDB_ERROR("Failed to read the database name\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Validate the name
@@ -527,7 +563,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   {
     KDB_ERROR("Wrong name for the database\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Try to parse the flags
@@ -535,7 +571,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   {
     KDB_ERROR("Failed to read the flags from database\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Check compatibility between the library and the file
@@ -544,7 +580,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
     {
       KDB_ERROR("KDB is set to use long double and this file is not compatible\n");
 
-      goto parsing_error;
+      goto error;
     }
   #else
     #ifdef KDB_USE_DOUBLE
@@ -552,7 +588,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
       {
         KDB_ERROR("KDB is set to use double and this file is not compatible\n");
 
-        goto parsing_error;
+        goto error;
       }
     #endif
   #endif
@@ -562,7 +598,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   {
     KDB_ERROR("Failed to read the records' count from database\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Try to parse the sum
@@ -570,7 +606,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   {
     KDB_ERROR("Failed to read the sum from database\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Try to parse the average
@@ -578,7 +614,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   {
     KDB_ERROR("Failed to read the average from database\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Try to parse the minimum
@@ -586,7 +622,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   {
     KDB_ERROR("Failed to read the minimum from database\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Try to parse the maximum
@@ -594,7 +630,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   {
     KDB_ERROR("Failed to read the maximum from database\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Try to parse the variance
@@ -602,7 +638,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   {
     KDB_ERROR("Failed to read the variance from database\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Try to parse the median
@@ -610,7 +646,7 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   {
     KDB_ERROR("Failed to read the median from database\n");
 
-    goto parsing_error;
+    goto error;
   }
 
   // Initialize the database with the read/parsed data
@@ -627,15 +663,33 @@ bool kdb_initialize(KDB* db, char* filename, char* name)
   db->header.median   = f_median;
 
   // All good
-  db->initialized = true;
+  success:
+    db->initialized = true;
 
-  return true;
+    kdb_hashmap_dbs_set(name, db);
+
+    return db;
 
   // Close the file
-  parsing_error:
-    kdb_finalize(db);
+  error:
+    if (db)
+    {
+      if (db->filename)
+      {
+        free(db->filename);
+      }
 
-    return false;
+      free(db);
+    }
+    else
+    {
+      if (filename)
+      {
+        free(filename);
+      }
+    }
+
+    return NULL;
 }
 
 // Finalize the database's structure
