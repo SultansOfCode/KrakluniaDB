@@ -107,6 +107,7 @@ typedef struct
 typedef struct
 {
   bool       initialized;
+  char*      p_name;
   char*      filename;
   FILE*      file;
   KDB_HEADER header;
@@ -118,11 +119,11 @@ typedef struct
 #define KDB_HASHMAP_VALUE_TYPE KDB*
 #include "kdb_hashmap.h"
 
-// #define KDB_HASHMAP_NAME       cache
-// #define KDB_HASHMAP_CAPACITY   64
-// #define KDB_HASHMAP_KEY_TYPE   unsigned int
-// #define KDB_HASHMAP_VALUE_TYPE KDB_VALUE_TYPE
-// #include "kdb_hashmap.h"
+#define KDB_HASHMAP_NAME       dbs_references
+#define KDB_HASHMAP_CAPACITY   32
+#define KDB_HASHMAP_KEY_TYPE   char*
+#define KDB_HASHMAP_VALUE_TYPE uint64_t
+#include "kdb_hashmap.h"
 
 int            kdb_compare_values(const void* a, const void* b);
 KDB_VALUE_TYPE kdb_map_value(KDB_VALUE_TYPE value, KDB_VALUE_TYPE min_a, KDB_VALUE_TYPE max_a, KDB_VALUE_TYPE min_b, KDB_VALUE_TYPE max_b);
@@ -154,7 +155,7 @@ KDB_VALUE_TYPE kdb_sma(KDB* db, uint32_t index, uint32_t frame);
 #ifdef KDB_IMPLEMENTATION
 int kdb_compare_values(const void* a, const void* b)
 {
-  KDB_VALUE_TYPE first = *(const KDB_VALUE_TYPE*)a;
+  KDB_VALUE_TYPE first  = *(const KDB_VALUE_TYPE*)a;
   KDB_VALUE_TYPE second = *(const KDB_VALUE_TYPE*)b;
 
   if (first < second)
@@ -263,7 +264,7 @@ void kdb_dump_header(KDB* db)
 
   printf("\n");
 
-  printf("Indicator name:\t%s\n", db->header.name);
+  printf("Indicator name:\t%s\n", db->p_name);
   printf("Flags:\t\t"KDB_FLAGS_TYPE_FORMAT" (", db->header.flags);
 
   kdb_dump_flags_binary(db);
@@ -409,7 +410,7 @@ KDB* kdb_initialize(char* name)
     return false;
   }
 
-  for (size_t i = 0; i < name_size; ++name_size)
+  for (size_t i = 0; i < name_size; ++i)
   {
     if (('a' <= name[i] && name[i] <= 'z') || ('0' <= name[i] && name[i] <= '9'))
     {
@@ -425,6 +426,10 @@ KDB* kdb_initialize(char* name)
 
   if (db)
   {
+    uint64_t references = kdb_hashmap_dbs_references_get(name, 0);
+
+    kdb_hashmap_dbs_references_set(db->p_name, references + 1);
+
     return db;
   }
 
@@ -438,31 +443,45 @@ KDB* kdb_initialize(char* name)
   }
 
   // Ensure everything is clean
-  kdb_finalize(db);
+  memset(db, 0, sizeof(KDB));
+
+  // Initialize name pointer
+  char* p_name = (char*)malloc((name_size + 1) * sizeof(char));
+
+  if (!p_name)
+  {
+    KDB_ERROR("Could not allocate memory for the name\n");
+
+    goto error;
+  }
+
+  memset(p_name, 0, name_size + 1);
 
   // Initialize filename
   char* filename = (char*)malloc((name_size + 5) * sizeof(char));
 
   if (!filename)
   {
-    return false;
+    KDB_ERROR("Could not allocate memory for the filename\n");
+
+    goto error;
   }
 
   memset(filename, 0, name_size + 5);
 
+  // Fill name and filename
   for (size_t i = 0; i < name_size; ++i)
   {
-    *(filename + i) = *(name + i);
+    p_name[i]   = name[i];
+    filename[i] = name[i];
   }
 
-  *(filename + name_size + 0) = '.';
-  *(filename + name_size + 1) = 'k';
-  *(filename + name_size + 2) = 'd';
-  *(filename + name_size + 3) = 'b';
+  filename[name_size + 0] = '.';
+  filename[name_size + 1] = 'k';
+  filename[name_size + 2] = 'd';
+  filename[name_size + 3] = 'b';
 
-  printf("Name: %s - Name size: %d - Filename: %s\n", name, name_size, filename);
-  return NULL;
-
+  db->p_name = p_name;
   db->filename = filename;
 
   // Try to open the file to read/update
@@ -480,7 +499,7 @@ KDB* kdb_initialize(char* name)
       {
         KDB_ERROR("Failed to create the file \"%s\"\n", filename);
 
-        goto file_error;
+        goto error;
       }
 
       // Initialize data
@@ -498,7 +517,7 @@ KDB* kdb_initialize(char* name)
       // Try to write the header
       if (!kdb_write_header(db))
       {
-        goto file_error;
+        goto error;
       }
 
       // All good
@@ -506,9 +525,6 @@ KDB* kdb_initialize(char* name)
     }
 
     KDB_ERROR("Failed to open \"%s\"\n", filename);
-
-    file_error:
-      return false;
   }
 
   // Read data from file
@@ -666,7 +682,8 @@ KDB* kdb_initialize(char* name)
   success:
     db->initialized = true;
 
-    kdb_hashmap_dbs_set(name, db);
+    kdb_hashmap_dbs_set(p_name, db);
+    kdb_hashmap_dbs_references_set(p_name, 1);
 
     return db;
 
@@ -674,15 +691,20 @@ KDB* kdb_initialize(char* name)
   error:
     if (db)
     {
-      if (db->filename)
+      if (!kdb_finalize(db))
       {
-        free(db->filename);
+        KDB_ERROR("Failed to properly finalize database\n");
       }
 
       free(db);
     }
     else
     {
+      if (p_name)
+      {
+        free(p_name);
+      }
+
       if (filename)
       {
         free(filename);
@@ -700,6 +722,26 @@ bool kdb_finalize(KDB* db)
     return true;
   }
 
+  uint64_t references = kdb_hashmap_dbs_references_get(db->p_name, 0);
+
+  if (references == 0)
+  {
+    KDB_ERROR("There are no references to database\n");
+
+    return false;
+  }
+
+  uint64_t new_references = references - 1;
+
+  kdb_hashmap_dbs_references_set(db->p_name, new_references);
+
+  if (new_references > 0)
+  {
+    return true;
+  }
+
+  kdb_hashmap_dbs_references_remove(db->p_name);
+
   // Close the file
   if (db->file)
   {
@@ -714,8 +756,17 @@ bool kdb_finalize(KDB* db)
   }
 
   // Zero all data
+  if (db->p_name)
+  {
+    free(db->p_name);
+
+    db->p_name = NULL;
+  }
+
   if (db->filename)
   {
+    free(db->filename);
+
     db->filename = NULL;
   }
 

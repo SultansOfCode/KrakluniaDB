@@ -5,6 +5,8 @@
 #define KDB_IMPLEMENTATION
 #include "kdb.h"
 
+#define DB_NAME "test"
+
 int main(void)
 {
   printf("sizeof(KDB):\t\t\t%lu\n", sizeof(KDB));
@@ -13,22 +15,24 @@ int main(void)
   printf("sizeof(KDB_HEADER):\t\t%lu\n", sizeof(KDB_HEADER));
   printf("sizeof(KDB_DATA):\t\t%lu\n", sizeof(KDB_DATA));
 
-  KDB* db = kdb_initialize("test");
+  printf("HASHMAP DUMP 1\n");
+  kdb_hashmap_dbs_references_dump();
+  
+  KDB* db = kdb_initialize(DB_NAME);
 
   if (!db)
   {
     return 1;
   }
 
-  kdb_hashmap_dbs_set("test", NULL);
+  printf("HASHMAP DUMP 2\n");
+  kdb_hashmap_dbs_references_dump();
 
   srand(time(NULL));
 
   for (size_t i = 0; i < 1000; ++i)
   {
     kdb_add(db, (KDB_VALUE_TYPE)rand() / INT32_MAX * 2 - 1);
-    // kdb_add(&db, (KDB_VALUE_TYPE)(rand() % 10));
-    // kdb_add(&db, i);
   }
 
   printf("\n");
@@ -45,11 +49,18 @@ int main(void)
 
   kdb_dump(db, false);
 
-  KDB* db2 = kdb_initialize("test");
+  printf("HASHMAP DUMP 3\n");
+  kdb_hashmap_dbs_references_dump();
+
+  KDB* db2 = kdb_initialize(DB_NAME);
 
   printf("BEFORE\n");
+  printf("db points to: %p\n", db);
   printf("db.initialized  = %d\n", db->initialized);
   printf("db2.initialized = %d\n", db2->initialized);
+
+  printf("HASHMAP DUMP 4\n");
+  kdb_hashmap_dbs_references_dump();
 
   if (!kdb_finalize(db))
   {
@@ -57,16 +68,25 @@ int main(void)
   }
 
   printf("AFTER\n");
+  printf("db points to: %p\n", db);
   printf("db.initialized  = %d\n", db->initialized);
   printf("db2.initialized = %d\n", db2->initialized);
 
-  // kdb_hashmap_dbs_get("Test", NULL);
-  // kdb_hashmap_dbs_set("Test", NULL);
+  printf("HASHMAP DUMP 5\n");
+  kdb_hashmap_dbs_references_dump();
 
-  // kdb_hashmap_cache_get(10, -1.0f);
-  // kdb_hashmap_cache_get(15, -2.0f);
-  // kdb_hashmap_cache_get(20, -3.0f);
-  // kdb_hashmap_cache_set(0, 1.0f);
+  if (!kdb_finalize(db2))
+  {
+    return 1;
+  }
+
+  printf("VERY AFTER\n");
+  printf("db points to: %p\n", db);
+  printf("db.initialized  = %d\n", db->initialized);
+  printf("db2.initialized = %d\n", db2->initialized);
+
+  printf("HASHMAP DUMP 6\n");
+  kdb_hashmap_dbs_references_dump();
 
   return 0;
 }
