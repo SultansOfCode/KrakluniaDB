@@ -150,6 +150,26 @@ KDB_VALUE_TYPE kdb_variance(KDB* db);
 KDB_VALUE_TYPE kdb_stddev(KDB* db);
 KDB_VALUE_TYPE kdb_median(KDB* db);
 KDB_VALUE_TYPE kdb_sma(KDB* db, uint32_t index, uint32_t frame);
+
+#define KDB_INITIALIZE(variable_name, db_name) \
+  KDB* variable_name; \
+  \
+  variable_name = kdb_initialize(db_name); \
+  \
+  if (!variable_name) \
+  { \
+    KDB_ERROR("Could not initialize database \"%s\"", db_name); \
+  }
+
+#define KDB_FINALIZE(db) \
+  if (kdb_finalize(db)) \
+  { \
+    db = NULL; \
+  } \
+  else \
+  { \
+    KDB_ERROR("Could not finalize database \"%s\"", db->p_name); \
+  }
 #endif // KDB_H_
 
 #ifdef KDB_IMPLEMENTATION
@@ -1112,8 +1132,6 @@ KDB_VALUE_TYPE kdb_sma(KDB* db, uint32_t index, uint32_t frame)
 
 /* TODO
  * Add comments
- * Create the hashmap
  * Test removing sum from records
  *   Add a cache for optimizing moving averages
- * Add a hashmap for kdb*, so each file has only one file handler
- */
+  */
