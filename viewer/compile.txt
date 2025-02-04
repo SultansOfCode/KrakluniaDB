@@ -1,0 +1,1 @@
+cd .. && rm *.kdb && gcc -o file_tests file_tests.c && ./file_tests.exe && cd viewer && rm *.kdb && cp ../*.kdb . && gcc -o main main.c -lraylib -lgdi32 -lwinmm && ./main.exe
