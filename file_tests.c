@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <time.h>
 
+#include "perlin.h"
+
 #define KDB_IMPLEMENTATION
 #include "kdb.h"
 
@@ -34,7 +36,12 @@ int main(void)
 
   for (size_t i = 0; i < DB_RECORD_COUNT; ++i)
   {
-    kdb_add(db, (KDB_VALUE_TYPE)rand() / INT32_MAX * 2 - 1);
+    float v = (KDB_VALUE_TYPE)rand() / RAND_MAX;
+    v = perlin2d(i * 0.1, 0, 0.123, 5);
+
+    printf("Adding index %lu: %f\n", i, v);
+
+    kdb_add(db, v);
   }
 
   printf("\n");
