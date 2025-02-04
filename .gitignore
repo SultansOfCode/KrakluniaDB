@@ -3,3 +3,4 @@ file_tests
 *.kdb
 .vscode
 .DS_Store
+viewer/*.exe
